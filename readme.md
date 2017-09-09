@@ -38,6 +38,10 @@ https://github.com/pothosware/PothosCore/wiki/Downloads
 * Python3 libraries
 pip3 install pillow numpy simplesoapy
 
+* Download and unpack SDR-Waterfall2Img from this page
+
 * OSX only
-copy libraries from 'osx' folder to the folder script
+copy libraries from 'osx' subfolder to the folder script
+
+* Run command line, see samples above
 
