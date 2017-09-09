@@ -1,7 +1,7 @@
 SDR-Waterfall2Img - universal SDR Waterfall Image Saver.
 
 # Usage
-Application is intended to process and save data from SDR receiver and save it in the waterfall format.
+Application is intended to process and save data from different SDR receiver and save it in the waterfall format.
 
 # Features:
 - Unlimited (almost) waterfall size and lots of parameters to tune
@@ -15,9 +15,11 @@ Application is intended to process and save data from SDR receiver and save it i
 # Command line examples
 
 **SDRplay**
+
 python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RFGR:2" --average=64
 
 **RTLSDR**
+
 python3 wf2img.py --sdr=rtlsdr --imagewidth=1024 --sr=2048000 --f=122000000 --average=32 --sdrgain="TUNER:40"
 
 If recording is not starting, additional parameters can be added:
