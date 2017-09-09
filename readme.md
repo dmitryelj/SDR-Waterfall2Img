@@ -1,5 +1,4 @@
-Universal SDR Waterfall Image Saver.
-(c) 2017 Dmitrii (dmitryelj@gmail.com)
+SDR-Waterfall2Img - universal SDR Waterfall Image Saver.
 
 # Usage
 Application is intended to process and save data from SDR receiver and save it in the waterfall format.
