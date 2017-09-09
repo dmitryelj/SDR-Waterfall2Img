@@ -3,7 +3,7 @@ SDR-Waterfall2Img - universal SDR Waterfall Image Saver.
 # Usage
 Application is intended to process and save data from different SDR receiver and save it in the waterfall format.
 
-# Features:
+Features:
 - Unlimited (almost) waterfall size and lots of parameters to tune
 - Support of different SDR receivers by using Python and vendor neutral SoapySDR API
 - Cross platform, from Windows and OSX to Raspberry Pi
@@ -29,20 +29,24 @@ python3 wf2img.py --sdr="driver=rtlsdr,rtl=1" --imagewidth=1024 --sr=2048000 --f
 # Installation and requirements
 
 * Python3
+
 https://www.python.org/downloads/
 
 * SoapySDR
+
 https://github.com/pothosware/SoapySDR/wiki#installation
 
 Easiest way - to install Pothos Core, it contains all binaries:
 https://github.com/pothosware/PothosCore/wiki/Downloads
 
-* Python3 libraries
+* Python3 libraries:
+
 pip3 install pillow numpy simplesoapy
 
 * Download and unpack SDR-Waterfall2Img from this page
 
-* OSX only
+* OSX only:
+
 copy libraries from 'osx' subfolder to the folder script
 
 * Run command line, see samples above
