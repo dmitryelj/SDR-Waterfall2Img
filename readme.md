@@ -14,6 +14,10 @@ Features:
 
 # Command line examples
 
+**Get receiver info**
+
+python3 info.py
+
 **SDRplay**
 
 python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RFGR:2" --average=64
@@ -26,28 +30,58 @@ If recording is not starting, additional parameters can be added:
 
 python3 wf2img.py --sdr="driver=rtlsdr,rtl=1" --imagewidth=1024 --sr=2048000 --f=122000000 --average=32 --sdrgain="TUNER:40"
 
+**HackRF**
+
+python3 wf2img.py --sdr=hackrf --imagewidth=4096 --sr=20000000 --f=127000000 --average=64 --sdrgain="AMP:0;LNA:37;VGA:24" 
+
 # Installation and requirements
 
-* Python3
+* Windows install:
 
-https://www.python.org/downloads/
+- Install Python 3 from https://www.python.org/downloads/ (I used C:\Python3 folder)
 
-* SoapySDR
+- Run C:\Python3\Scripts\pip.exe install pillow numpy simplesoapy
 
-https://github.com/pothosware/SoapySDR/wiki#installation
-
-Easiest way - to install Pothos Core, it contains all binaries:
+- Install SoapySDR binaries. Easiest way - to install Pothos Core, it contains all binaries:
 https://github.com/pothosware/PothosCore/wiki/Downloads
 
-* Python3 libraries:
+- Download and unpack SDR-Waterfall2Img from this page
 
-pip3 install pillow numpy simplesoapy
+- Run and enjoy
 
-* Download and unpack SDR-Waterfall2Img from this page
+* Raspberry Pi (not working yet, development in progress):
 
-* OSX only:
+sudo apt-get update
 
-copy libraries from 'osx' subfolder to the folder script
+Install Python 3.6 (a pity, but simplesoapy requires this):
 
-* Run command line, see samples above
+sudo apt-get install build-essential tk-dev libncurses5-dev libncursesw5-dev libreadline6-dev libdb5.3-dev libgdbm-dev libsqlite3-dev libssl-dev libbz2-dev libexpat1-dev liblzma-dev zlib1g-dev
+wget https://www.python.org/ftp/python/3.6.0/Python-3.6.0.tar.xz
+tar xf Python-3.6.0.tar.xz
+cd Python-3.6.0
+./configure
+make -j4
+sudo make altinstall
 
+Install SoapySDR
+sudo apt-get install python-dev swig
+git clone https://github.com/pothosware/SoapySDR.git
+
+Follow the instructions:
+https://github.com/pothosware/SoapySDR/wiki/BuildGuide
+
+sudo pip-3.6 install pillow numpy simplesoapy
+git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
+
+* OSX:
+
+Build SoapySDR:
+git clone https://github.com/pothosware/SoapySDR.git
+
+Follow the instructions:
+https://github.com/pothosware/SoapySDR/wiki/BuildGuide
+
+sudo pip-3.2 install pillow numpy simplesoapy
+git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
+
+Optional: If the app is not working with "soapysdr not found" error, copy SoapySDR python libraries from 'osx' or "SoapySDR/build" subfolder to the folder script

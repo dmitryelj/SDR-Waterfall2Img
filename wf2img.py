@@ -31,7 +31,7 @@ class SDR(object):
             return
 
         # Search by additional parameter, like 'driver=rtlsdr,rtl=1'
-        if ',' in name:
+        if name is not None and ',' in name:
             self.sdr = simplesoapy.SoapyDevice(name)
             self.name = driverName
             return
