@@ -49,29 +49,25 @@ https://github.com/pothosware/PothosCore/wiki/Downloads
 
 - Run and enjoy
 
-### Raspberry Pi (not working yet, development in progress):
+### Raspberry Pi:
 
 sudo apt-get update
 
-Install Python 3.6 (a pity, but simplesoapy requires this):
-
-sudo apt-get install build-essential tk-dev libncurses5-dev libncursesw5-dev libreadline6-dev libdb5.3-dev libgdbm-dev libsqlite3-dev libssl-dev libbz2-dev libexpat1-dev liblzma-dev zlib1g-dev
-wget https://www.python.org/ftp/python/3.6.0/Python-3.6.0.tar.xz
-tar xf Python-3.6.0.tar.xz
-cd Python-3.6.0
-./configure
-make -j4
-sudo make altinstall
-
 Install SoapySDR
+
 sudo apt-get install python-dev swig
 git clone https://github.com/pothosware/SoapySDR.git
+mkdir build
+cd build
+cmake ..
+make -j4
+sudo make install
+sudo ldconfig #needed on debian systems
 
-Follow the instructions:
-https://github.com/pothosware/SoapySDR/wiki/BuildGuide
-
-sudo pip-3.6 install pillow numpy simplesoapy
+sudo pip3 install pillow numpy
 git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
+
+In the case of getting "SoapySDR not found" error, copy files "SoapySDR.py" and "_SoapySDR.so" from SoapySDR/build/python3 to SDR-Waterfall2Img folder
 
 ### OSX:
 

@@ -7,128 +7,155 @@
 # - install python libraries: pip3 install pillow numpy simplesoapy
 
 import numpy as np
-import os, sys, time
-import simplesoapy
+import os, sys, multiprocessing, time
+import struct
+import soapyDevice
 import optparse
 import datetime
 import imageProcessing
 import utils
 import logging
-
-class SDR(object):
-    def __init__(self):
-        self.isInit = False
-        self.sdr = None
-        self.name = ""
-
-    def listDevices(self):
-        devices = simplesoapy.detect_devices(as_string=False)
-        return devices
-
-    def initDevice(self, name = None, driverName = None):
-        if name is None and driverName is None:
-            self.name = "fake"
-            return
-
-        # Search by additional parameter, like 'driver=rtlsdr,rtl=1'
-        if name is not None and ',' in name:
-            self.sdr = simplesoapy.SoapyDevice(name)
-            self.name = driverName
-            return
-
-        # Search by driver
-        if driverName is not None:
-            self.sdr = simplesoapy.SoapyDevice('driver=' + driverName)
-            self.name = driverName
-            return
-
-        # Search by driver or description
-        devices = self.listDevices()
-        for d in devices:
-            driver = d['driver']
-            description = d['label']
-            if name == driver or name in description:
-                self.sdr = simplesoapy.SoapyDevice('driver=' + driver)
-                self.name = driver
-                return
-            
-        self.name = "-"
-
-    def findSoapyDevice(self, devices):
-        deviceNames = map(lambda d: d['driver'], devices)
-        for name in deviceNames:
-            if name == 'sdrplay' or name == 'hackrf' or name == 'rtlsdr':
-                return name
-            
-        return None
-
-    def getSampleRates(self):
-        if self.sdr is None:
-            return [2000000.0]
-        
-        return self.sdr.list_sample_rates()
-
-    def getGains(self):
-        if self.sdr is None: return "-"
-
-        s = ""
-        gains = self.sdr.list_gains()
-        for g in gains:
-            s += "{}:{}; ".format(g, self.sdr.get_gain_range(amp_name=g))
-        return s
-
-    def setGainFromString(self, gainStr):
-        if self.sdr is None: return
-      
-        # String like IFGR:30;RFGR:2
-        items = gainStr.split(";")
-        for i in items:
-            values = i.split(":")
-            name = values[0]
-            value = values[1]
-            print("Set gain:", name, "value:", value)
-            self.sdr.set_gain(name, float(value))
-
-    def setSampleRate(self, samplerate):
-        if self.sdr is not None:
-            self.sdr.sample_rate = samplerate
-
-    def setCenterFrequency(self, frequency):
-        if self.sdr is not None:
-            self.sdr.freq = frequency
-
-    def startStream(self):
-        if self.sdr is not None:
-          # Setup base buffer and start receiving samples. Base buffer size is determined
-          # by SoapySDR.Device.getStreamMTU(). If getStreamMTU() is not implemented by driver,
-          # SoapyDevice.default_buffer_size is used instead
-          self.sdr.start_stream(buffer_size=16384)
-
-    def stopStream(self):
-        if self.sdr is not None:
-            self.sdr.stop_stream()
-
-    def readStream(self):
-        if self.sdr is not None:
-            res = self.sdr.read_stream()
-            #print("Data received", res)
-            return self.sdr.buffer if res.ret > 0 else []
-        else:
-            randData = np.random.rand(16384)
-            time.sleep(0.01)
-            return randData
+from sdr import SDR
+from waveFile import WaveFile
 
 def getVersion():
-  return "1.0b3"
+    return "1.0b4"
+
+def iqSaveProcess(dataFile, dataPipe):
+  try:
+    savedCount = 0
+    while True:
+      timeout = 10
+      if dataPipe.poll(timeout):
+        data = dataPipe.recv()
+        if len(data) == 0:
+          break
+        
+        data_ = data.astype('int32')
+        
+        print("Save:", len(data_), type(data_), type(data_[0]))
+        
+        fileName = "{}-{:05d}.iq".format(imageFileName, savedCount)
+        data_.tofile(fileName)
+
+        savedCount += 1
+  
+  except Exception as e:
+      exc_type, exc_obj, tb = sys.exc_info()
+      print("iqSaveProcess error:", e.args[0], tb.tb_lineno)
+  except KeyboardInterrupt:
+    pass
+  except:
+    pass
+
+  print("")
+  print("iqSaveProcess done")
+
+
+def waterfallSaveProcess(imageWidth, sampleRate, frequencyKHz, outputFolder, imageFileName, dataPipe):
+  try:
+    savedCount = 0
+    while True:
+      timeout = 10
+      if dataPipe.poll(timeout):
+        data = dataPipe.recv()
+        if len(data) == 0:
+            break
+        
+        now = datetime.datetime.now()
+
+        img = imageProcessing.createImageHeader(imageWidth, sampleRate, frequencyKHz)
+        imgData = imageProcessing.imageToArray(img)
+
+        imgDataOut = np.append(imgData, data, axis=0)
+        imgOut = imageProcessing.imageFromArray(imgDataOut)
+
+        fileName = "{}-{:05d}.jpg".format(imageFileName, savedCount)
+        filePath = utils.makeFilePath(outputFolder, fileName)
+        imgOut.save(filePath)
+        
+        savedCount += 1
+
+        print("{:02d}:{:02d}:{:02d}: {} saved".format(now.hour, now.minute, now.second, fileName))
+
+  except Exception as e:
+      exc_type, exc_obj, tb = sys.exc_info()
+      print("waterfallSaveProcess error:", e.args[0], tb.tb_lineno)
+  except KeyboardInterrupt:
+      pass
+  except:
+      pass
+
+  print("")
+  print("waterfallSaveProcess done")
+
+def combineFiles(imageFileName, filesSavedCount):
+  try:
+    # Combine several images to a big one
+    print("Combine files:")
+    imgData = None
+    for p in range(filesSavedCount):
+        fileName = "{}-{:05d}.jpg".format(imageFileName, p)
+        filePath = utils.makeFilePath(outputFolder, fileName)
+        img = imageProcessing.loadImage(filePath)
+        if imgData is None:
+            # Add first image as is
+            imgData = imageProcessing.imageToArray(img)
+        else:
+            # Remove header from other images
+            width, height = img.size
+            headerH = imageProcessing.getHeaderHeight()
+            imgCrop = img.crop((0, headerH, width, height-headerH))
+            data = imageProcessing.imageToArray(imgCrop)
+            imgData = np.append(imgData, data, axis=0)
+          
+        print("{} added".format(fileName))
+    
+    # Save result
+    fileName = "{}.jpg".format(imageFileName)
+    filePath = utils.makeFilePath(outputFolder, fileName)
+    imgOut = imageProcessing.imageFromArray(imgData)
+    imgOut.save(filePath)
+    print("Done, {} saved".format(filePath))
+
+    # Remove originals
+    for p in range(filesSavedCount):
+        fileName = "{}-{:05d}.jpg".format(imageFileName, p)
+        filePath = utils.makeFilePath(outputFolder, fileName)
+        utils.deleteFile(filePath)
+
+  except:
+    print("combineFiles error: please add files manually")
+
+def combineIQData(fileName, iqSavedCount):
+    print("Combine files:")
+    
+    fileOutput = "{}.wav".format(fileName)
+    
+    for p in range(iqSavedCount):
+        fileName = "{}-{:05d}.iq".format(fileName, p)
+        fileData = open(fileName, "rb").read()
+        
+        if p == 0:
+            # Create new file
+            with open(fileOutput, "wb") as fileNew:
+              wave = WaveFile(sample_rate=4000000)
+              wave.saveHeader(fileNew)
+              fileNew.write(fileData)
+        else:
+            # Append to the end
+            with open(fileOutput, "ab") as fileAppend:
+              fileAppend.write(fileData)
+
+        utils.deleteFile(fileName)
+          
+    print("Done")
+
 
 if __name__ == '__main__':
     print(utils.bold("SDR Waterfall2Img, version " + getVersion()))
-    print(utils.bold("Usage: python3 sdr2pano.py  --f=frequencyInKHz [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N]"))
+    print(utils.bold("Usage: python3 sdr2pano.py  --f=frequencyInKHz [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1]"))
     print("")
-
-    logger = logging.getLogger("simplesoapy")
-    logger.propagate = False
-    logger.setLevel(logging.ERROR)
 
     # Command line arguments
     parser = optparse.OptionParser()
@@ -140,6 +167,7 @@ if __name__ == '__main__':
     parser.add_option("--imagefile", dest="imagefile", help="output file name", default="")
     parser.add_option("--average", dest="average", help="stream average", default=64)
     parser.add_option("--markerS", dest="markerInS", help="time marker in seconds", default=60)
+    parser.add_option("--saveIQ", dest="saveIQ", help="save IQ in HDSDR-compatible wav file", default=False)
     options, args = parser.parse_args()
     
     frequencyKHz = int(options.frequency)
@@ -150,7 +178,7 @@ if __name__ == '__main__':
     markerInS = int(options.markerInS)
     markerRGB = [220,0,0]
     imageHeightLimit = 16384    # Not used yet
-    saveIQ = False              # Not used yet
+    saveIQ = isinstance(options.saveIQ, str) and (options.saveIQ == 'true' or options.saveIQ == '1' or options.saveIQ == 'True')
     outputFolder = utils.getAppFolder()
     
     sdr = SDR()
@@ -195,6 +223,7 @@ if __name__ == '__main__':
     print("Vertical markers (s):", markerInS)
     print("Gains:", sdr.getGains())
     print("Output folder:", outputFolder)
+    print("Save IQ:", saveIQ)
     print("")
 
     print("Recording will be started after 4 seconds...")
@@ -216,7 +245,20 @@ if __name__ == '__main__':
     imgBlockCombine = 2
     samplesToAdd = []
     filesSavedCount = 0
+    iqSavedCount = 0
     
+    # Start saving waterfall process
+    parentPipe, childPipe = multiprocessing.Pipe()
+    params = [ imageWidth, sampleRate, frequencyKHz, outputFolder, imageFileName, parentPipe ]
+    process = multiprocessing.Process(target=waterfallSaveProcess, args=params)
+    process.start()
+    
+    # Start saving file process
+    iqParentPipe, iqChildPipe = multiprocessing.Pipe()
+    paramsIQ = [ imageFileName, iqParentPipe ]
+    processIQ = multiprocessing.Process(target=iqSaveProcess, args=paramsIQ)
+    processIQ.start()
+
     now = datetime.datetime.now()
     timeInS = 24*60*now.hour + 60*now.minute + now.second
     diffInS = timeInS - markerInS*int(timeInS/markerInS)
@@ -228,6 +270,11 @@ if __name__ == '__main__':
           for p in range(average):
               data = sdr.readStream()
               if len(data) > 0:
+                # Save IQ (optional)
+                if saveIQ:
+                    iqChildPipe.send(data)
+                    iqSavedCount += 1
+                # Save FFT
                 fft = imageProcessing.applyFFT(data, imageWidth)
                 fftData += fft
           fftData /= average
@@ -244,31 +291,32 @@ if __name__ == '__main__':
           samplesToAdd.append(imgLine)
           # Save, if ready
           if len(samplesToAdd) == imgBlockSize:
-              img = imageProcessing.createImageHeader(imageWidth, sampleRate, frequencyKHz)
-              imgData = imageProcessing.imageToArray(img)
-
-              imgDataOut = np.append(imgData, samplesToAdd, axis=0)
-              imgOut = imageProcessing.imageFromArray(imgDataOut)
+              childPipe.send(samplesToAdd)
               
-              fileName = "{}-{:05d}.jpg".format(imageFileName, filesSavedCount)
-              filePath = utils.makeFilePath(outputFolder, fileName)
-              imgOut.save(filePath)
-
-              print("{:02d}:{:02d}:{:02d}: {} saved".format(now.hour, now.minute, now.second, fileName))
-
               samplesToAdd = []
               filesSavedCount += 1
 
-          # np.save("data.wav", samples)
-          # samples.astype('int16').tofile("data.iq")
-
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        exc_type, exc_obj, tb = sys.exc_info()
+        print("Error:", e.args[0], tb.tb_lineno)
     except:
         pass
 
     # Stop receiving
     sdr.stopStream()
+
+    childPipe.send([])
+    process.join(timeout=10)
+
+    iqChildPipe.send([])
+    processIQ.join(timeout=10)
+
+    childPipe.close()
+    parentPipe.close()
+    iqChildPipe.close()
+    iqParentPipe.close()
 
     print("")
 
@@ -278,32 +326,7 @@ if __name__ == '__main__':
     #sys.exit(0)
 
     if filesSavedCount > 1:
-        print("Combine files:")
-        imgData = None
-        # Add other images
-        for p in range(filesSavedCount):
-            fileName = "{}-{:05d}.jpg".format(imageFileName, p)
-            filePath = utils.makeFilePath(outputFolder, fileName)
-            img = imageProcessing.loadImage(filePath)
-            if p == 0:
-                # Add first image as is
-                imgData = imageProcessing.imageToArray(img)
-            else:
-                # Remove header from other images
-                width, height = img.size
-                headerH = imageProcessing.getHeaderHeight()
-                imgCrop = img.crop((0, headerH, width, height-headerH))
-                data = imageProcessing.imageToArray(imgCrop)
-                imgData = np.append(imgData, data, axis=0)
-            
-            print("{} added".format(fileName))
-
-            utils.deleteFile(filePath)
-
-        # Save result
-        fileName = "{}.jpg".format(imageFileName)
-        filePath = utils.makeFilePath(outputFolder, fileName)
-        imgOut = imageProcessing.imageFromArray(imgData)
-        imgOut.save(filePath)
-        print("Done, {} saved".format(filePath))
+        combineFiles(imageFileName, filesSavedCount)
+    if iqSavedCount > 0:
+        combineIQData(imageFileName, iqSavedCount)
 

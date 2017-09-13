@@ -16,6 +16,7 @@ def getHeaderHeight():
     return headerH
 
 def createImageHeader(imageWidth, sampleRate, frequencyKHz):
+  try:
     img = Image.new('RGB', (imageWidth, headerH))
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default() # ImageFont.truetype("sans-serif.ttf", 12)
@@ -47,6 +48,10 @@ def createImageHeader(imageWidth, sampleRate, frequencyKHz):
     # Bottom divider
     draw.line((0,headerH-1, imageWidth,headerH-1), fill=(200,200,200))
     return img
+  except Exception as e:
+    exc_type, exc_obj, tb = sys.exc_info()
+    print("createImageHeader error:", e.args[0], tb.tb_lineno)
+    return None
 
 def loadImage(fileName):
     return Image.open(fileName)
