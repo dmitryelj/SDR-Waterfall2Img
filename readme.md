@@ -55,29 +55,29 @@ sudo apt-get update
 
 Install SoapySDR
 
-sudo apt-get install python-dev swig
-git clone https://github.com/pothosware/SoapySDR.git
-mkdir build
-cd build
-cmake ..
-make -j4
-sudo make install
-sudo ldconfig #needed on debian systems
+sudo apt-get install python-dev swig  
+git clone https://github.com/pothosware/SoapySDR.git  
+mkdir build  
+cd build  
+cmake ..  
+make -j4  
+sudo make install  
+sudo ldconfig #needed on debian systems  
 
-sudo pip3 install pillow numpy
-git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
+sudo pip3 install pillow numpy  
+git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git  
 
-In the case of getting "SoapySDR not found" error, copy files "SoapySDR.py" and "_SoapySDR.so" from SoapySDR/build/python3 to SDR-Waterfall2Img folder
+In the case of getting "SoapySDR not found" error, copy files "SoapySDR.py" and "_SoapySDR.so" from SoapySDR/build/python3 to SDR-Waterfall2Img folder  
 
 ### OSX:
 
-Build SoapySDR:
-git clone https://github.com/pothosware/SoapySDR.git
+Build SoapySDR:  
+git clone https://github.com/pothosware/SoapySDR.git  
 
-Follow the instructions:
-https://github.com/pothosware/SoapySDR/wiki/BuildGuide
+Follow the instructions:  
+https://github.com/pothosware/SoapySDR/wiki/BuildGuide  
 
-sudo pip-3.2 install pillow numpy simplesoapy
-git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
+sudo pip-3.2 install pillow numpy simplesoapy  
+git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git  
 
-Optional: If the app is not working with "soapysdr not found" error, copy SoapySDR python libraries from 'osx' or "SoapySDR/build" subfolder to the folder script
+Optional: If the app is not working with "soapysdr not found" error, copy SoapySDR python libraries from 'osx' or "SoapySDR/build" subfolder to the folder script  

@@ -9,153 +9,30 @@
 import numpy as np
 import os, sys, multiprocessing, time
 import struct
-import soapyDevice
+#import soapyDevice
 import optparse
 import datetime
 import imageProcessing
+import fileProcessing
 import utils
 import logging
 from sdr import SDR
 from waveFile import WaveFile
+if utils.isRaspberryPi():
+  import libTFT
 
 def getVersion():
     return "1.0b4"
 
-def iqSaveProcess(dataFile, dataPipe):
-  try:
-    savedCount = 0
-    while True:
-      timeout = 10
-      if dataPipe.poll(timeout):
-        data = dataPipe.recv()
-        if len(data) == 0:
-          break
-        
-        data_ = data.astype('int32')
-        
-        print("Save:", len(data_), type(data_), type(data_[0]))
-        
-        fileName = "{}-{:05d}.iq".format(imageFileName, savedCount)
-        data_.tofile(fileName)
-
-        savedCount += 1
-  
-  except Exception as e:
-      exc_type, exc_obj, tb = sys.exc_info()
-      print("iqSaveProcess error:", e.args[0], tb.tb_lineno)
-  except KeyboardInterrupt:
-    pass
-  except:
-    pass
-
-  print("")
-  print("iqSaveProcess done")
-
-
-def waterfallSaveProcess(imageWidth, sampleRate, frequencyKHz, outputFolder, imageFileName, dataPipe):
-  try:
-    savedCount = 0
-    while True:
-      timeout = 10
-      if dataPipe.poll(timeout):
-        data = dataPipe.recv()
-        if len(data) == 0:
-            break
-        
-        now = datetime.datetime.now()
-
-        img = imageProcessing.createImageHeader(imageWidth, sampleRate, frequencyKHz)
-        imgData = imageProcessing.imageToArray(img)
-
-        imgDataOut = np.append(imgData, data, axis=0)
-        imgOut = imageProcessing.imageFromArray(imgDataOut)
-
-        fileName = "{}-{:05d}.jpg".format(imageFileName, savedCount)
-        filePath = utils.makeFilePath(outputFolder, fileName)
-        imgOut.save(filePath)
-        
-        savedCount += 1
-
-        print("{:02d}:{:02d}:{:02d}: {} saved".format(now.hour, now.minute, now.second, fileName))
-
-  except Exception as e:
-      exc_type, exc_obj, tb = sys.exc_info()
-      print("waterfallSaveProcess error:", e.args[0], tb.tb_lineno)
-  except KeyboardInterrupt:
-      pass
-  except:
-      pass
-
-  print("")
-  print("waterfallSaveProcess done")
-
-def combineFiles(imageFileName, filesSavedCount):
-  try:
-    # Combine several images to a big one
-    print("Combine files:")
-    imgData = None
-    for p in range(filesSavedCount):
-        fileName = "{}-{:05d}.jpg".format(imageFileName, p)
-        filePath = utils.makeFilePath(outputFolder, fileName)
-        img = imageProcessing.loadImage(filePath)
-        if imgData is None:
-            # Add first image as is
-            imgData = imageProcessing.imageToArray(img)
-        else:
-            # Remove header from other images
-            width, height = img.size
-            headerH = imageProcessing.getHeaderHeight()
-            imgCrop = img.crop((0, headerH, width, height-headerH))
-            data = imageProcessing.imageToArray(imgCrop)
-            imgData = np.append(imgData, data, axis=0)
-          
-        print("{} added".format(fileName))
-    
-    # Save result
-    fileName = "{}.jpg".format(imageFileName)
-    filePath = utils.makeFilePath(outputFolder, fileName)
-    imgOut = imageProcessing.imageFromArray(imgData)
-    imgOut.save(filePath)
-    print("Done, {} saved".format(filePath))
-
-    # Remove originals
-    for p in range(filesSavedCount):
-        fileName = "{}-{:05d}.jpg".format(imageFileName, p)
-        filePath = utils.makeFilePath(outputFolder, fileName)
-        utils.deleteFile(filePath)
-
-  except:
-    print("combineFiles error: please add files manually")
-
-def combineIQData(fileName, iqSavedCount):
-    print("Combine files:")
-    
-    fileOutput = "{}.wav".format(fileName)
-    
-    for p in range(iqSavedCount):
-        fileName = "{}-{:05d}.iq".format(fileName, p)
-        fileData = open(fileName, "rb").read()
-        
-        if p == 0:
-            # Create new file
-            with open(fileOutput, "wb") as fileNew:
-              wave = WaveFile(sample_rate=4000000)
-              wave.saveHeader(fileNew)
-              fileNew.write(fileData)
-        else:
-            # Append to the end
-            with open(fileOutput, "ab") as fileAppend:
-              fileAppend.write(fileData)
-
-        utils.deleteFile(fileName)
-          
-    print("Done")
-
+def printIntro():
+    print(utils.bold("SDR Waterfall2Img, version " + getVersion()))
+    print(utils.bold("Usage: python3 wf2img.py  --f=frequencyInKHz [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1]"))
+    print("Run 'nohup <python3 wf2img.py parameters> &' to run in the background")
+    print("To combine files, saved before, use: python3 fileProcessing.py --file=fileName.jpg [--delete=true]")
+    print("")
 
 if __name__ == '__main__':
-    print(utils.bold("SDR Waterfall2Img, version " + getVersion()))
-    print(utils.bold("Usage: python3 sdr2pano.py  --f=frequencyInKHz [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1]"))
-    print("")
+    printIntro()
 
     # Command line arguments
     parser = optparse.OptionParser()
@@ -189,8 +66,7 @@ if __name__ == '__main__':
         print(d)
     print("")
     #print(devices[0])
-    #print(type(devices[0]))
-    
+    #print(type(devices[0]))    
 
     device = options.sdr if len(options.sdr) > 0 else sdr.findSoapyDevice(devices)
     print("Receiver selected:", device)
@@ -198,7 +74,8 @@ if __name__ == '__main__':
         print("Error: receiver not found")
         sys.exit(1)
     if device is None:
-        print("Warning: no receiver detected, simulation only")
+        print("Error: no receiver detected")
+        sys.exit(1) # Disable for debug only
 
     # Initialize SDR device
     sdr.initDevice(device)
@@ -250,13 +127,13 @@ if __name__ == '__main__':
     # Start saving waterfall process
     parentPipe, childPipe = multiprocessing.Pipe()
     params = [ imageWidth, sampleRate, frequencyKHz, outputFolder, imageFileName, parentPipe ]
-    process = multiprocessing.Process(target=waterfallSaveProcess, args=params)
+    process = multiprocessing.Process(target=fileProcessing.waterfallSaveProcess, args=params)
     process.start()
     
     # Start saving file process
     iqParentPipe, iqChildPipe = multiprocessing.Pipe()
     paramsIQ = [ imageFileName, iqParentPipe ]
-    processIQ = multiprocessing.Process(target=iqSaveProcess, args=paramsIQ)
+    processIQ = multiprocessing.Process(target=fileProcessing.iqSaveProcess, args=paramsIQ)
     processIQ.start()
 
     now = datetime.datetime.now()
@@ -323,10 +200,8 @@ if __name__ == '__main__':
     # Combine files
     print("Files saved: {}".format(filesSavedCount))
 
-    #sys.exit(0)
-
     if filesSavedCount > 1:
-        combineFiles(imageFileName, filesSavedCount)
+        fileProcessing.combineImages(imageFileName, filesSavedCount)
     if iqSavedCount > 0:
-        combineIQData(imageFileName, iqSavedCount)
+        fileProcessing.combineIQData(imageFileName, iqSavedCount)
 

@@ -18,6 +18,17 @@ def isFileExist(filePath):
 def getFileName(filePath):
     return os.path.splitext(filePath)[0]
 
+def getFileNameOnly(filePath):
+    path, file = os.path.split(filePath)
+    fileExt = os.path.splitext(file)[0]
+    return fileExt
+
+def getFileExtention(filePath):
+    path, file = os.path.split(filePath)
+    fileExt = os.path.splitext(file)[1]
+    return fileExt
+
+
 def deleteFile(filePath):
   try:
       os.remove(filePath)
@@ -50,3 +61,7 @@ def makeFilePath(folder, file):
 
 def isWindows():
   return os.name == "nt"
+
+def isRaspberryPi():
+  return os.name != "nt" and os.uname()[0] == "Linux"
+
