@@ -242,10 +242,10 @@ def waveToSpectrum(fileInput, fileOutput, imageWidth, average):
     imgData = imageProcessing.imageToArray(img)
     imgDataOut = np.append(imgData, fftLines, axis=0)
 
-    fileName = fileOutput #"{}-{:05d}.jpg".format(imageFileName, savedCount)
-    filePath = utils.makeFilePath(utils.getAppFolder(), fileName)
+    # fileName = fileOutput #"{}-{:05d}.jpg".format(imageFileName, savedCount)
+    # filePath = utils.makeFilePath(utils.getAppFolder(), fileName)
     imgOut = imageProcessing.imageFromArray(imgDataOut)
-    imgOut.save(filePath)
+    imgOut.save(fileOutput)
     print("Blocks saved:", len(fftLines))
 
 if __name__ == '__main__':
