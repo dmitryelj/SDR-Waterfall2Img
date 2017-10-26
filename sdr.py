@@ -23,7 +23,7 @@ class SDR(object):
         # Search by additional parameter, like 'driver=rtlsdr,rtl=1'
         if name is not None and ',' in name:
             self.sdr = SoapyDevice(name)
-            self.name = driverName
+            self.name = name
             return
 
         # Search by driver
@@ -58,6 +58,16 @@ class SDR(object):
         
         return self.sdr.list_sample_rates()
 
+    def getBandwidths(self):
+        if self.sdr is None: return "-"
+
+        return self.sdr.list_bandwidths()
+
+    def getBps(self):
+        if 'rtlsdr' in self.name or 'hackrf' in self.name:
+            return 8
+        return 16
+
     def getGains(self):
         if self.sdr is None: return "-"
 
@@ -69,7 +79,7 @@ class SDR(object):
 
     def setGainFromString(self, gainStr):
         if self.sdr is None: return
-      
+        
         # String like IFGR:30;RFGR:2
         items = gainStr.split(";")
         for i in items:
@@ -77,11 +87,18 @@ class SDR(object):
             name = values[0]
             value = values[1]
             print("Set gain:", name, "value:", value)
-            self.sdr.set_gain(name, float(value))
+            try:
+                self.sdr.set_gain(name, float(value))
+            except:
+                print("Warning: cannot set gain {} to {}".format(name, value))
 
     def setSampleRate(self, samplerate):
         if self.sdr is not None:
             self.sdr.sample_rate = samplerate
+
+    def setBandwidth(self, bandwidth):
+        if self.sdr is not None:
+            self.sdr.bandwidth = bandwidth
 
     def setCenterFrequency(self, frequency):
         if self.sdr is not None:
@@ -92,7 +109,7 @@ class SDR(object):
           # Setup base buffer and start receiving samples. Base buffer size is determined
           # by SoapySDR.Device.getStreamMTU(). If getStreamMTU() is not implemented by driver,
           # SoapyDevice.default_buffer_size is used instead
-          self.sdr.start_stream(buffer_size=16384)
+          self.sdr.start_stream(buffer_size=65536)
 
     def stopStream(self):
         if self.sdr is not None:
@@ -101,12 +118,15 @@ class SDR(object):
     def readStream(self):
         if self.sdr is not None:
             res = self.sdr.read_stream()
-            #print("Data received", res)
-            return self.sdr.buffer if res.ret > 0 else []
+            dataLen = res.ret
+            #print("Data received", len(res))
+            return self.sdr.buffer if res.ret > 0 else [], dataLen
         else:
-            randData = np.random.rand(16384)
+            randData = np.random.rand(4096)
+            randData *= 32768
+            randData -= 16384
             time.sleep(0.01)
-            return randData
+            return randData.astype('int16'), len(randData)
 
 if __name__ == '__main__':
     pass

@@ -17,17 +17,14 @@ import fileProcessing
 import utils
 import logging
 from sdr import SDR
-from waveFile import WaveFile
+from version import *
 if utils.isRaspberryPi():
   import libTFT
 
-def getVersion():
-    return "1.0b4"
-
 def printIntro():
-    print(utils.bold("SDR Waterfall2Img, version " + getVersion()))
-    print(utils.bold("Usage: python3 wf2img.py  --f=frequencyInKHz [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1]"))
-    print("Run 'nohup <python3 wf2img.py parameters> &' to run in the background")
+    print(utils.bold('SDR Waterfall2Img, version ' + getVersion()))
+    print(utils.bold('Usage: python3 wf2img.py  --f=frequency [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1] [--tStart=18:30] [--tLimit=120] [--batch="frequency;timeStart;timeEnd"]'))
+    print("Run 'nohup <python3 wf2img.py parameters> &' to execute in the background")
     print("To combine files, saved before, use: python3 fileProcessing.py --file=fileName.jpg [--delete=true]")
     print("")
 
@@ -39,25 +36,62 @@ if __name__ == '__main__':
     parser.add_option("--sdr", dest="sdr", help="receiver name", default="")
     parser.add_option("--sdrgain", dest="sdrgain", help="sdr gain settings", default="")
     parser.add_option("--sr", dest="samplerate", help="sample rate", default=2000000)
+    parser.add_option("--bw", dest="bandwidth", help="bandwidth", default=0)
     parser.add_option("--f", dest="frequency", help="center frequency", default=101000000)
     parser.add_option("--imagewidth", dest="imagewidth", help="image width", default=1024)
-    parser.add_option("--imagefile", dest="imagefile", help="output file name", default="")
-    parser.add_option("--average", dest="average", help="stream average", default=64)
+    parser.add_option("--average", dest="average", help="stream average", default=16)
     parser.add_option("--markerS", dest="markerInS", help="time marker in seconds", default=60)
-    parser.add_option("--saveIQ", dest="saveIQ", help="save IQ in HDSDR-compatible wav file", default=False)
+    parser.add_option("--saveIQ", dest="saveIQ", help="save IQ in HDSDR-compatible wav file", default="false")
+    parser.add_option("--saveWaterfall", dest="saveWaterfall", help="save waterfall", default="true")
+    parser.add_option("--tStart", dest="timeStart", help="app start recording time", default="")
+    parser.add_option("--tEnd",   dest="timeEnd",   help="app end recording time", default="")
+    parser.add_option("--tLimit", dest="timeLimit", help="app run time limit in seconds", default=9999999)
+    parser.add_option("--decimation", dest="decimation", help="signal decimation", default=1)
+    parser.add_option("--batch", dest="batch", help="batch job (in format frequency1;time1-1;time1-2;frequency2;time2-1;time2-2)", default="")
+    parser.add_option("--debug", dest="debug", help="debug simulation", default="")
     options, args = parser.parse_args()
     
-    frequencyKHz = int(options.frequency)
     sampleRate = int(options.samplerate)
-    imageFileName = options.imagefile
+    bandwidth = int(options.bandwidth)
+    wavFileName = ""
     imageWidth = int(options.imagewidth)
     average = int(options.average)
+    decimation = int(options.decimation)
     markerInS = int(options.markerInS)
     markerRGB = [220,0,0]
     imageHeightLimit = 16384    # Not used yet
+    saveWaterfall = isinstance(options.saveWaterfall, str) and (options.saveWaterfall == 'true' or options.saveWaterfall == '1' or options.saveWaterfall == 'True')
     saveIQ = isinstance(options.saveIQ, str) and (options.saveIQ == 'true' or options.saveIQ == '1' or options.saveIQ == 'True')
+    useDebug = isinstance(options.debug, str) and (options.debug == 'true' or options.debug == '1' or options.debug == 'True')
     outputFolder = utils.getAppFolder()
-    
+    frequencies = [ int(options.frequency) ]
+    timesStart = [ utils.datetimeFromString(options.timeStart) ]
+    timesEnd   = [ utils.datetimeFromString(options.timeEnd) ]
+    timesLimit = [ int(options.timeLimit) ]
+    if len(options.batch) > 10:
+        # Sample format: 110000000;15:55;15:57;120000000;16:00;16:05
+        print("Found batch tasks:", options.batch)
+        items = options.batch.split(";")
+        if len(items) % 3 == 0:
+            frequencies = []
+            timesStart = []
+            timesEnd = []
+            for p in range(int(len(items)/3)):
+                frequency = items[3*p]
+                ts = items[3*p + 1]
+                te = items[3*p + 2]
+                
+                tsDate = utils.datetimeFromString(ts)
+                teDate = utils.datetimeFromString(te)
+                if tsDate is None or teDate is None: continue
+                
+                print("Batch added: f={}, start:{}, end:{}".format(int(frequency), tsDate, teDate))
+                frequencies.append(int(frequency))
+                timesStart.append(tsDate)
+                timesEnd.append(teDate)
+        else:
+            print("Incorrect batch format, should be 'frequency;time1;time2'")
+
     sdr = SDR()
     # List all connected SoapySDR devices
     devices = sdr.listDevices()
@@ -65,143 +99,218 @@ if __name__ == '__main__':
     for d in devices:
         print(d)
     print("")
-    #print(devices[0])
-    #print(type(devices[0]))    
 
     device = options.sdr if len(options.sdr) > 0 else sdr.findSoapyDevice(devices)
     print("Receiver selected:", device)
-    if device is None and len(options.sdr) > 0:
+    print("")
+    
+    if device is None and len(options.sdr) > 0 and useDebug is False:
         print("Error: receiver not found")
         sys.exit(1)
-    if device is None:
+    if device is None and useDebug is False:
         print("Error: no receiver detected")
-        sys.exit(1) # Disable for debug only
+        sys.exit(1)
+    if saveIQ is False and saveWaterfall is False:
+        print("Error: no task selected, saveIQ and saveWaterfall are both false")
+        sys.exit(1)
 
-    # Initialize SDR device
     sdr.initDevice(device)
     sdr.setSampleRate(sampleRate)
-    sdr.setCenterFrequency(frequencyKHz)
+    if bandwidth != 0:
+        sdr.setBandwidth(bandwidth)
     if len(options.sdrgain) > 0:
-      sdr.setGainFromString(options.sdrgain)
+        sdr.setGainFromString(options.sdrgain)
     else:
-      if device == 'sdrplay':
-          sdr.setGainFromString("IFGR:40;RFGR:4")
-      if device == 'rtlsdr':
-          sdr.setGainFromString("TUNER:30")
+        if device == 'sdrplay':
+            sdr.setGainFromString("IFGR:40;RFGR:4")
+        if device == 'rtlsdr':
+            sdr.setGainFromString("TUNER:30")
 
-    sdr.startStream()
-
-    # Show status
     print("Receiver:", device)
     print("Sample rate:", sampleRate)
+    print("Frequencies:", frequencies)
     print("Sample rates:", sdr.getSampleRates())
-    print("Frequency (KHz):", frequencyKHz)
+    print("Bandwidth:", bandwidth if bandwidth != 0 else "default")
+    print("Bandwidths:", sdr.getBandwidths())
+    print("BPS:", sdr.getBps())
+    print("Gains:", sdr.getGains())
     print("Average, blocks:", average)
     print("Vertical markers (s):", markerInS)
-    print("Gains:", sdr.getGains())
     print("Output folder:", outputFolder)
+    print("Save waterfall:", saveWaterfall)
     print("Save IQ:", saveIQ)
     print("")
 
-    print("Recording will be started after 4 seconds...")
-    print("")
-    time.sleep(4)
+    for index, frequency in enumerate(frequencies):
+        # Initialize SDR device
+        sdr.setCenterFrequency(frequency)
+        sdr.startStream()
+        
+        timeStart = timesStart[index] if index < len(timesStart) else None
+        timeEnd = timesEnd[index] if index < len(timesEnd) else None
+        timeLimit = timesLimit[index] if index < len(timesLimit) else 9999999
 
-    print("Recording started, press Ctrl+C to stop")
+        # Show status
+        print(utils.bold("Task {} of {}".format(index+1, len(frequencies))))
+        print("Start time:", "-" if timeStart is None else timeStart)
+        print("End time:", "-" if timeEnd is None else timeEnd)
+        print("Limit in seconds:", "-" if timeLimit == 9999999 else timeLimit)
+        print("")
 
-    # Image file name - automatic/custom, without extention
-    if len(imageFileName) == 0:
+        # Wait for the start
+        if timeStart is not None:
+            while True:
+                now = datetime.datetime.now()
+                diff = int((timeStart - now).total_seconds())
+                print("{:02d}:{:02d}:{:02d}: Recording will be started after {}m {:02d}s...".format(now.hour, now.minute, now.second, int(diff/60), diff%60))
+                time.sleep(1)
+                if diff <= 1: break
+        else:
+            print("Recording will be started after 4 seconds...")
+            time.sleep(4)
+        print("")
+
+        print("Recording started, press Ctrl+C to stop")
+
+        # Output name from current time
         dtStr = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        imageFileName = "{}-{}".format(dtStr, frequencyKHz)
-    else:
-        imageFileName = utils.getFileName(imageFileName)
+        imageFileName = "{}-{}".format(dtStr, frequency)
+        # Wav file name, like "HDSDR_20171002_191902Z_7603kHz_RF.wav"
+        if saveIQ:
+            dtStr = datetime.datetime.now().strftime("%Y%m%d_%H%M%SZ")
+            wavFileName = "HDSDR_{}_{}kHz_RF".format(dtStr, int(frequency/1000))
 
-    # Image data
-    imgBlockSize = 64
-    imgBlockNumber = 0
-    imgBlockCombine = 2
-    samplesToAdd = []
-    filesSavedCount = 0
-    iqSavedCount = 0
-    
-    # Start saving waterfall process
-    parentPipe, childPipe = multiprocessing.Pipe()
-    params = [ imageWidth, sampleRate, frequencyKHz, outputFolder, imageFileName, parentPipe ]
-    process = multiprocessing.Process(target=fileProcessing.waterfallSaveProcess, args=params)
-    process.start()
-    
-    # Start saving file process
-    iqParentPipe, iqChildPipe = multiprocessing.Pipe()
-    paramsIQ = [ imageFileName, iqParentPipe ]
-    processIQ = multiprocessing.Process(target=fileProcessing.iqSaveProcess, args=paramsIQ)
-    processIQ.start()
+        # Image data
+        imgBlockSize = 64
+        imgBlockNumber = 0
+        imgBlockCombine = 2
+        samplesToAdd = []
+        filesSavedCount = 0
+        iqSavedCount = 0
+        iqSavedSize = 0
+        iqBPS = sdr.getBps()
+        
+        # Start saving waterfall process
+        parentPipe, childPipe = multiprocessing.Pipe()
+        params = [ imageWidth, int(sampleRate/decimation), frequency, outputFolder, imageFileName, parentPipe ]
+        process = multiprocessing.Process(target=fileProcessing.waterfallSaveProcess, args=params)
+        process.start()
+        
+        # Start saving file process
+        iqParentPipe, iqChildPipe = multiprocessing.Pipe()
+        paramsIQ = [ wavFileName, iqParentPipe ]
+        processIQ = multiprocessing.Process(target=fileProcessing.iqSaveProcess, args=paramsIQ)
+        processIQ.start()
 
-    now = datetime.datetime.now()
-    timeInS = 24*60*now.hour + 60*now.minute + now.second
-    diffInS = timeInS - markerInS*int(timeInS/markerInS)
-    timeMarker = now - datetime.timedelta(seconds=diffInS)
+        start = datetime.datetime.now()
+        timeInS = 24*60*start.hour + 60*start.minute + start.second
+        diffInS = timeInS - markerInS*int(timeInS/markerInS)
+        timeMarker = start - datetime.timedelta(seconds=diffInS)
 
-    try:
-        while True:
-          fftData = np.zeros(imageWidth)
-          for p in range(average):
-              data = sdr.readStream()
-              if len(data) > 0:
-                # Save IQ (optional)
-                if saveIQ:
-                    iqChildPipe.send(data)
-                    iqSavedCount += 1
-                # Save FFT
-                fft = imageProcessing.applyFFT(data, imageWidth)
-                fftData += fft
-          fftData /= average
-          
-          now = datetime.datetime.now()
+        try:
+            while True:
+                fftData = np.zeros(imageWidth)
+                for p in range(average):
+                    data, dataLen = sdr.readStream()
+                    if dataLen > 0:
+                        # Decimation (optional)
+                        if decimation > 1:
+                            data = data[::decimation]   # data = data.reshape(-1, decimation).mean(axis=1)
+                            dataLen = int(dataLen/decimation)
+                        # Save IQ
+                        if saveIQ:
+                            iqChildPipe.send(data[0:dataLen])
+                            iqSavedCount += 1
+                            iqSavedSize += dataLen*2*iqBPS/8 # I+Q data in array
+                        # Save FFT
+                        if saveWaterfall:
+                            dataC = None
+                            if iqBPS == 8:
+                                # 2x8bit => I + Q
+                                dataForFFT = data[0:imageWidth].astype('uint16')
+                                re = dataForFFT & 0xFF
+                                im = dataForFFT >> 8
+                                dataC =  np.asfarray(re) + 1j*np.asfarray(im)
+                            else:
+                                # 2x16bit => I + Q
+                                dataForFFT = data[0:imageWidth].astype('uint32')
+                                re = dataForFFT & 0xFFFF
+                                im = dataForFFT >> 16
+                                dataC = np.asfarray(re) + 1j*np.asfarray(im)
+                                #dataC =  np.asfarray(re.astype('int16')) + 1j* np.asfarray(im.astype('int16'))
 
-          imgLine = imageProcessing.generateNewLine(imageWidth, fftData)
-          # Add time marker
-          diffInS = (now - timeMarker).total_seconds()
-          if diffInS > markerInS:
-              for x in range(10):
-                imgLine[x] = markerRGB
-              timeMarker = now
-          samplesToAdd.append(imgLine)
-          # Save, if ready
-          if len(samplesToAdd) == imgBlockSize:
-              childPipe.send(samplesToAdd)
-              
-              samplesToAdd = []
-              filesSavedCount += 1
+                            fft = imageProcessing.applyFFT(dataC, imageWidth)
+                            fftData += fft
 
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        exc_type, exc_obj, tb = sys.exc_info()
-        print("Error:", e.args[0], tb.tb_lineno)
-    except:
-        pass
+                            #print("FFT", len(fft))
+                fftData /= average
+                
+                now = datetime.datetime.now()
+                # Check run time
+                runTime = int((now - start).total_seconds())
+                if runTime > timeLimit:
+                    break
+                if timeEnd is not None and now > timeEnd:
+                    break
+                # Check free space
+                free,total = utils.getDiskSpace()
+                if free < 64*1024*1024:
+                    print("Error: no free space on device")
+                    break
 
-    # Stop receiving
-    sdr.stopStream()
+                if saveWaterfall:
+                    imgLine = imageProcessing.generateNewLine(imageWidth, fftData, iqBPS)
+                    # Add time marker
+                    diffInS = (now - timeMarker).total_seconds()
+                    if diffInS > markerInS:
+                        for x in range(10):
+                          imgLine[x] = markerRGB
+                        timeMarker = now
+                    samplesToAdd.append(imgLine)
+                    # Save, if ready
+                    if len(samplesToAdd) == imgBlockSize:
+                        childPipe.send(samplesToAdd)
+                        
+                        samplesToAdd = []
+                        filesSavedCount += 1
 
-    childPipe.send([])
-    process.join(timeout=10)
+                # Notify if IQ save active
+                if saveIQ and iqSavedCount % 64 == 0:
+                    print("{}:{:02d}s: {}.wav: {}Mb saved, {}Mb free on device".format(int(runTime/60), runTime%60, imageFileName, int(iqSavedSize/(1024*1024)), int(free/(1024*1024))))
 
-    iqChildPipe.send([])
-    processIQ.join(timeout=10)
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            exc_type, exc_obj, tb = sys.exc_info()
+            print("Error:", e.args[0], tb.tb_lineno)
+        except:
+            pass
 
-    childPipe.close()
-    parentPipe.close()
-    iqChildPipe.close()
-    iqParentPipe.close()
+        # Stop receiving
+        sdr.stopStream()
 
-    print("")
+        childPipe.send([])
+        process.join(timeout=10)
 
-    # Combine files
-    print("Files saved: {}".format(filesSavedCount))
+        iqChildPipe.send([])
+        processIQ.join(timeout=10)
 
-    if filesSavedCount > 1:
-        fileProcessing.combineImages(imageFileName, filesSavedCount)
-    if iqSavedCount > 0:
-        fileProcessing.combineIQData(imageFileName, iqSavedCount)
+        childPipe.close()
+        parentPipe.close()
+        iqChildPipe.close()
+        iqParentPipe.close()
+
+        print("")
+
+        # Combine files
+        print("Images saved: {}".format(filesSavedCount))
+        print("IQ blocks saved: {}".format(iqSavedCount))
+
+        if filesSavedCount > 1:
+            fileProcessing.combineImages(imageFileName, filesSavedCount)
+        if iqSavedCount > 0:
+            fileProcessing.combineIQData(wavFileName, iqSavedCount, int(sampleRate/decimation), iqBPS)
+
+        print("")
+
 

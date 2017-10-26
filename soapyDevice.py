@@ -8,7 +8,7 @@ import math
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.DEBUG)
 
 class SoapyDevice:
     """Simple wrapper for SoapySDR"""
@@ -24,6 +24,9 @@ class SoapyDevice:
         self.stream = None
         self.stream_args = stream_args
         self.stream_timeout = 0
+        self.dataFormat = SoapySDR.SOAPY_SDR_CS16 
+        if 'rtlsdr' in soapy_args or 'hackrf' in soapy_args:
+            self.dataFormat = SoapySDR.SOAPY_SDR_CS8
 
         self._hardware = self.device.getHardwareKey()
         self._channel = None
@@ -65,6 +68,9 @@ class SoapyDevice:
         if settings:
             for setting_name, value in settings.items():
                 self.set_setting(setting_name, value)
+
+    def __del__(self):
+      self.device = None
 
     @staticmethod
     def listDevices():
@@ -149,19 +155,20 @@ class SoapyDevice:
     @bandwidth.setter
     def bandwidth(self, bandwidth):
         """Set filter bandwidth [Hz]"""
-        if self.force_bandwidth:
-            real_bandwidth = bandwidth
-        else:
-            band_ranges = self.list_bandwidths()
-            if not band_ranges:
-                logger.warning('Device does not support setting filter bandwidth!')
-                return
-
-            real_bandwidth = band_ranges.closest(bandwidth)
-            if bandwidth != real_bandwidth:
-                logger.warning('Filter bandwidth {} Hz is not supported, setting it to {} Hz!'.format(
-                    bandwidth, real_bandwidth
-                ))
+        real_bandwidth = bandwidth
+        #if self.force_bandwidth:
+        #    real_bandwidth = bandwidth
+        #else:
+        #    band_ranges = self.list_bandwidths()
+        #    if not band_ranges:
+        #        logger.warning('Device does not support setting filter bandwidth!')
+        #        return
+        #
+        #    real_bandwidth = band_ranges.closest(bandwidth)
+        #    if bandwidth != real_bandwidth:
+        #        logger.warning('Filter bandwidth {} Hz is not supported, setting it to {} Hz!'.format(
+        #            bandwidth, real_bandwidth
+        #        ))
 
         self._bandwidth = real_bandwidth
         self.device.setBandwidth(SoapySDR.SOAPY_SDR_RX, self._channel, real_bandwidth)
@@ -260,19 +267,15 @@ class SoapyDevice:
 
     def list_bandwidths(self):
         """List allowed bandwidths"""
+        bws = []
         try:
-            band_ranges = Ranges(
-                (f.minimum(), f.maximum())
-                for f in self.device.getBandwidthRange(SoapySDR.SOAPY_SDR_RX, self._channel)
-            )
+            bw = self.device.getBandwidthRange(SoapySDR.SOAPY_SDR_RX, self._channel)
+            for r in bw:
+                bws.append(int(r.maximum()))
         except AttributeError:
-            band_ranges = None
-
-        if band_ranges:
-            return band_ranges
-        else:
-            band_list = self.device.listBandwidths(SoapySDR.SOAPY_SDR_RX, self._channel)
-            return Ranges((f, f) for f in band_list)
+            pass
+            #band_ranges = None
+        return bws
 
     def list_antennas(self):
         """List available antennas"""
@@ -352,6 +355,10 @@ class SoapyDevice:
             raise ValueError('Unknown device setting!')
         return self.device.readSetting(setting_name)
 
+    def get_format(self):
+        fullScale = 0.0
+        return self.device.getNativeStreamFormat(SoapySDR.SOAPY_SDR_RX, self._channel, fullScale)
+
     def set_setting(self, setting_name, value):
         """Set value of given device setting"""
         if setting_name not in self.list_settings():
@@ -362,9 +369,9 @@ class SoapyDevice:
         """Start streaming samples"""
         if self.is_streaming:
             raise RuntimeError('Streaming has been already initialized!')
-
+        
         logger.debug('SoapySDR stream - args: {}'.format(stream_args or self.stream_args or {}))
-        self.stream = self.device.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [self._channel],
+        self.stream = self.device.setupStream(SoapySDR.SOAPY_SDR_RX, self.dataFormat, [self._channel],
                                               stream_args or self.stream_args or {})
         self.device.activateStream(self.stream)
 
@@ -378,7 +385,9 @@ class SoapyDevice:
                 ))
                 buffer_size = self.default_buffer_size
 
-        self.buffer = numpy.empty(buffer_size, numpy.complex64)
+        # IQ: 2 digits ver variable
+        buf_format = numpy.int16 if self.dataFormat == SoapySDR.SOAPY_SDR_CS8 else numpy.uint32
+        self.buffer = numpy.empty(buffer_size, buf_format)
         self.buffer_overflow_count = 0
         self.stream_timeout = stream_timeout or 0.1 + (buffer_size / self.sample_rate)
         logger.debug('SoapySDR stream - buffer size: {}'.format(buffer_size))
@@ -404,10 +413,8 @@ class SoapyDevice:
         buffer_size = len(self.buffer)
         res = self.device.readStream(self.stream, [self.buffer], buffer_size,
                                      timeoutUs=math.ceil((stream_timeout or self.stream_timeout) * 1e6))
-        if res.ret > 0 and res.ret < buffer_size:
-            logger.warning('readStream returned only {} samples, but buffer size is {}!'.format(
-                res.ret, buffer_size
-            ))
+        #if res.ret > 0 and res.ret < buffer_size:
+        #    logger.warning('readStream returned only {} samples, but buffer size is {}!'.format(res.ret, buffer_size))
         return res
 
     def read_stream_into_buffer(self, output_buffer):

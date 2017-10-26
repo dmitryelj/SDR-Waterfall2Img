@@ -2,15 +2,16 @@ import struct
 
 class WaveFile(object):
 
-    def __init__(self, sample_rate):
+    def __init__(self, sample_rate, samples_num, bits_per_sample=16):
         self.subchunk_size = 16		# subchunk data size (16 for PCM)
         self.compression_type = 1	# compression (PCM = 1 [linear quantization])
-        self.channels_num = 1		# channels (mono = 1, stereo = 2)
-        self.bits_per_sample = 16
+        self.channels_num = 2		# channels (mono = 1, stereo = 2)
+        self.bits_per_sample = int(bits_per_sample)
         self.block_alignment = int(self.channels_num * self.bits_per_sample / 8)
-        self.sample_rate = sample_rate
+        self.sample_rate = int(sample_rate)
+        self.samples_num = int(samples_num)
         self.byte_rate = int(self.sample_rate * self.channels_num * self.bits_per_sample / 8)
-        self.duration = 0
+        self.duration = int(samples_num/self.sample_rate)
         self.data = []
 
     def add_data_subchunk(self, duration, data):
@@ -18,7 +19,6 @@ class WaveFile(object):
         self.data += data
 
     def saveHeader(self, f):
-        self.samples_num = int(self.duration * self.sample_rate)
         self.subchunk2_size = int(self.samples_num * self.channels_num * self.bits_per_sample / 8)
         
         # write RIFF header
