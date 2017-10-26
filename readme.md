@@ -79,16 +79,6 @@ https://github.com/pothosware/PothosCore/wiki/Downloads
 
 sudo apt-get update
 
-Install Python 3.6 (a pity, but simplesoapy requires this):
-
-sudo apt-get install build-essential tk-dev libncurses5-dev libncursesw5-dev libreadline6-dev libdb5.3-dev libgdbm-dev libsqlite3-dev libssl-dev libbz2-dev libexpat1-dev liblzma-dev zlib1g-dev
-wget https://www.python.org/ftp/python/3.6.0/Python-3.6.0.tar.xz
-tar xf Python-3.6.0.tar.xz
-cd Python-3.6.0
-./configure
-make -j4
-sudo make altinstall
-
 Install SoapySDR
 sudo apt-get install python-dev swig
 git clone https://github.com/pothosware/SoapySDR.git
@@ -96,7 +86,7 @@ git clone https://github.com/pothosware/SoapySDR.git
 Follow the instructions:
 https://github.com/pothosware/SoapySDR/wiki/BuildGuide
 
-sudo pip-3.6 install pillow numpy
+sudo pip-3.2 install pillow numpy
 git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
 
 ### OSX:
