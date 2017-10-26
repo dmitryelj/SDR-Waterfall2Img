@@ -25,6 +25,7 @@ python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RF
 **Use RTLSDR**
 
 python3 wf2img.py --sdr=rtlsdr --imagewidth=1024 --sr=2048000 --f=122000000 --average=32 --sdrgain="TUNER:40"
+
 (Important: image width should be power of 2: 512, 1024, 2048, etc)
 
 On some computers additional parameters may be required:
@@ -56,6 +57,7 @@ python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RF
 **Convert IQ WAV to Waterfall image**
 
 python wav2img.py --average=4 --imagewidth=2048 --input=HDSDR_20171018_222123Z_122000kHz_RF.wav
+
 (Important: image width should be power of 2: 512, 1024, 2048, etc)
 
 # Installation and requirements
@@ -73,7 +75,7 @@ https://github.com/pothosware/PothosCore/wiki/Downloads
 
 - Run and enjoy
 
-### Raspberry Pi (not working yet, development in progress):
+### Raspberry Pi:
 
 sudo apt-get update
 
