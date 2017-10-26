@@ -25,6 +25,7 @@ python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RF
 **Use RTLSDR**
 
 python3 wf2img.py --sdr=rtlsdr --imagewidth=1024 --sr=2048000 --f=122000000 --average=32 --sdrgain="TUNER:40"
+
 (Important: image width should be power of 2: 512, 1024, 2048, etc)
 
 On some computers additional parameters may be required:
@@ -56,6 +57,7 @@ python3 wf2img.py --sdr=sdrplay --f=101000000 --sr=8000000 --sdrgain="IFGR:30;RF
 **Convert IQ WAV to Waterfall image**
 
 python wav2img.py --average=4 --imagewidth=2048 --input=HDSDR_20171018_222123Z_122000kHz_RF.wav
+
 (Important: image width should be power of 2: 512, 1024, 2048, etc)
 
 # Installation and requirements
@@ -73,19 +75,9 @@ https://github.com/pothosware/PothosCore/wiki/Downloads
 
 - Run and enjoy
 
-### Raspberry Pi (not working yet, development in progress):
+### Raspberry Pi:
 
 sudo apt-get update
-
-Install Python 3.6 (a pity, but simplesoapy requires this):
-
-sudo apt-get install build-essential tk-dev libncurses5-dev libncursesw5-dev libreadline6-dev libdb5.3-dev libgdbm-dev libsqlite3-dev libssl-dev libbz2-dev libexpat1-dev liblzma-dev zlib1g-dev
-wget https://www.python.org/ftp/python/3.6.0/Python-3.6.0.tar.xz
-tar xf Python-3.6.0.tar.xz
-cd Python-3.6.0
-./configure
-make -j4
-sudo make altinstall
 
 Install SoapySDR
 sudo apt-get install python-dev swig
@@ -94,7 +86,7 @@ git clone https://github.com/pothosware/SoapySDR.git
 Follow the instructions:
 https://github.com/pothosware/SoapySDR/wiki/BuildGuide
 
-sudo pip-3.6 install pillow numpy
+sudo pip-3.2 install pillow numpy
 git clone https://github.com/dmitryelj/SDR-Waterfall2Img.git
 
 ### OSX:
