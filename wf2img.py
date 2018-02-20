@@ -9,7 +9,7 @@
 import numpy as np
 import os, sys, multiprocessing, time
 import struct
-#import soapyDevice
+import math
 import optparse
 import datetime
 import imageProcessing
@@ -19,17 +19,21 @@ import logging
 from sdr import SDR
 from version import *
 if utils.isRaspberryPi():
-  import libTFT
+    import libTFT
 
 def printIntro():
-    print(utils.bold('SDR Waterfall2Img, version ' + getVersion()))
-    print(utils.bold('Usage: python3 wf2img.py  --f=frequency [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1] [--tStart=18:30] [--tLimit=120] [--batch="frequency;timeStart;timeEnd"]'))
+    print(utils.bold('SDR Waterfall2Img, version %s\n' % getVersion()))
+    print(utils.bold('Usage: python3 wf2img.py  --f=frequency [--fStart=f1 --fEnd=f2] [--sr=sampleRate] [--sdr=receiver] [--imagewidth=imageWidth] [--imagefile=fileName] [--average=N] [--saveIQ=1] [--tStart=18:30] [--tLimit=120] [--batch="frequency;timeStart;timeEnd"]'))
     print("Run 'nohup <python3 wf2img.py parameters> &' to execute in the background")
     print("To combine files, saved before, use: python3 fileProcessing.py --file=fileName.jpg [--delete=true]")
     print("")
 
 if __name__ == '__main__':
     printIntro()
+    
+    if sys.version_info[0] < 3:
+        print("Error: Python3 is required, use 'python3 wf2img.py' to run the script\n")
+        sys.exit(1)
 
     # Command line arguments
     parser = optparse.OptionParser()
@@ -38,6 +42,8 @@ if __name__ == '__main__':
     parser.add_option("--sr", dest="samplerate", help="sample rate", default=2000000)
     parser.add_option("--bw", dest="bandwidth", help="bandwidth", default=0)
     parser.add_option("--f", dest="frequency", help="center frequency", default=101000000)
+    parser.add_option("--fStart", dest="frequency_start", help="center frequency", default=0)
+    parser.add_option("--fEnd", dest="frequency_end", help="center frequency", default=0)
     parser.add_option("--imagewidth", dest="imagewidth", help="image width", default=1024)
     parser.add_option("--average", dest="average", help="stream average", default=16)
     parser.add_option("--markerS", dest="markerInS", help="time marker in seconds", default=60)
@@ -54,7 +60,7 @@ if __name__ == '__main__':
     sampleRate = int(options.samplerate)
     bandwidth = int(options.bandwidth)
     wavFileName = ""
-    imageWidth = int(options.imagewidth)
+    imageWidth = imageProcessing.getNearestImageWidth(int(options.imagewidth))
     average = int(options.average)
     decimation = int(options.decimation)
     markerInS = int(options.markerInS)
@@ -68,6 +74,7 @@ if __name__ == '__main__':
     timesStart = [ utils.datetimeFromString(options.timeStart) ]
     timesEnd   = [ utils.datetimeFromString(options.timeEnd) ]
     timesLimit = [ int(options.timeLimit) ]
+    # Batch job (optional)
     if len(options.batch) > 10:
         # Sample format: 110000000;15:55;15:57;120000000;16:00;16:05
         print("Found batch tasks:", options.batch)
@@ -91,6 +98,16 @@ if __name__ == '__main__':
                 timesEnd.append(teDate)
         else:
             print("Incorrect batch format, should be 'frequency;time1;time2'")
+    # Frequency span (optional)
+    frequency_start = 0
+    frequency_end = 0
+    frequency_step = sampleRate
+    frequency_steps = 1
+    if int(options.frequency_start) != 0 and int(options.frequency_end) != 0 and saveIQ is False:
+        frequency_start = int(options.frequency_start)
+        frequency_steps = int(math.ceil((int(options.frequency_end) - int(options.frequency_start))/frequency_step))
+        frequency_end = frequency_start + frequency_step*frequency_steps
+        frequencies = [ frequency_start + int(frequency_step*frequency_steps/2) ]
 
     sdr = SDR()
     # List all connected SoapySDR devices
@@ -128,7 +145,11 @@ if __name__ == '__main__':
 
     print("Receiver:", device)
     print("Sample rate:", sampleRate)
-    print("Frequencies:", frequencies)
+    if frequency_steps > 1:
+        print("Frequency span: {}..{}, step {}".format(frequency_start, frequency_end, frequency_step))
+    else:
+        print("Frequencies:", frequencies)
+        print("Frequency span: disabled")
     print("Sample rates:", sdr.getSampleRates())
     print("Bandwidth:", bandwidth if bandwidth != 0 else "default")
     print("Bandwidths:", sdr.getBandwidths())
@@ -175,16 +196,17 @@ if __name__ == '__main__':
         # Output name from current time
         dtStr = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         imageFileName = "{}-{}".format(dtStr, frequency)
+        if frequency_steps > 1:
+            imageFileName = "{}-{}-{}".format(dtStr, frequency_start, frequency_end)
         # Wav file name, like "HDSDR_20171002_191902Z_7603kHz_RF.wav"
         if saveIQ:
             dtStr = datetime.datetime.now().strftime("%Y%m%d_%H%M%SZ")
             wavFileName = "HDSDR_{}_{}kHz_RF".format(dtStr, int(frequency/1000))
 
         # Image data
-        imgBlockSize = 64
+        imgBlockSize = 32
         imgBlockNumber = 0
         imgBlockCombine = 2
-        samplesToAdd = []
         filesSavedCount = 0
         iqSavedCount = 0
         iqSavedSize = 0
@@ -192,7 +214,7 @@ if __name__ == '__main__':
         
         # Start saving waterfall process
         parentPipe, childPipe = multiprocessing.Pipe()
-        params = [ imageWidth, int(sampleRate/decimation), frequency, outputFolder, imageFileName, parentPipe ]
+        params = [ imageWidth, imgBlockSize, int(sampleRate/decimation), frequency, outputFolder, imageFileName, parentPipe ]
         process = multiprocessing.Process(target=fileProcessing.waterfallSaveProcess, args=params)
         process.start()
         
@@ -206,79 +228,102 @@ if __name__ == '__main__':
         timeInS = 24*60*start.hour + 60*start.minute + start.second
         diffInS = timeInS - markerInS*int(timeInS/markerInS)
         timeMarker = start - datetime.timedelta(seconds=diffInS)
+        
+        class TimeOver(Exception): pass
+        class FreeSpaceError(Exception): pass
 
         try:
+            # Array of lines for each frequency step
+            samplesToAdd = [[] for i in range(frequency_steps)]
             while True:
-                fftData = np.zeros(imageWidth)
-                for p in range(average):
-                    data, dataLen = sdr.readStream()
-                    if dataLen > 0:
-                        # Decimation (optional)
-                        if decimation > 1:
-                            data = data[::decimation]   # data = data.reshape(-1, decimation).mean(axis=1)
-                            dataLen = int(dataLen/decimation)
-                        # Save IQ
-                        if saveIQ:
-                            iqChildPipe.send(data[0:dataLen])
-                            iqSavedCount += 1
-                            iqSavedSize += dataLen*2*iqBPS/8 # I+Q data in array
-                        # Save FFT
-                        if saveWaterfall:
-                            dataC = None
-                            if iqBPS == 8:
-                                # 2x8bit => I + Q
-                                dataForFFT = data[0:imageWidth].astype('uint16')
-                                re = dataForFFT & 0xFF
-                                im = dataForFFT >> 8
-                                dataC =  np.asfarray(re) + 1j*np.asfarray(im)
-                            else:
-                                # 2x16bit => I + Q
-                                dataForFFT = data[0:imageWidth].astype('uint32')
-                                re = dataForFFT & 0xFFFF
-                                im = dataForFFT >> 16
-                                dataC = np.asfarray(re) + 1j*np.asfarray(im)
-                                #dataC =  np.asfarray(re.astype('int16')) + 1j* np.asfarray(im.astype('int16'))
-
-                            fft = imageProcessing.applyFFT(dataC, imageWidth)
-                            fftData += fft
-
-                            #print("FFT", len(fft))
-                fftData /= average
+                for freq_index in range(frequency_steps):
+                    # Set span frequency (optional)
+                    if frequency_steps > 1:
+                        cur_freq = frequency_start + freq_index*frequency_step + frequency_step/2
+                        # print("Freq:", cur_freq)
+                        sdr.setCenterFrequency(cur_freq)
+                        # Skip first data (needs time to set proper frequency)
+                        sdr.readStream() 
+                        sdr.readStream()
                 
-                now = datetime.datetime.now()
-                # Check run time
-                runTime = int((now - start).total_seconds())
-                if runTime > timeLimit:
-                    break
-                if timeEnd is not None and now > timeEnd:
-                    break
-                # Check free space
-                free,total = utils.getDiskSpace()
-                if free < 64*1024*1024:
-                    print("Error: no free space on device")
-                    break
+                    fftData = np.zeros(imageWidth)
+                    # Get data
+                    for p in range(average):
+                        data, dataLen = sdr.readStream()
+                        if dataLen > 0:
+                            # Decimation (optional)
+                            if decimation > 1:
+                                data = data[::decimation]   # data = data.reshape(-1, decimation).mean(axis=1)
+                                dataLen = int(dataLen/decimation)
+                            # Save IQ
+                            if saveIQ:
+                                iqChildPipe.send(data[0:dataLen])
+                                iqSavedCount += 1
+                                iqSavedSize += dataLen*2*iqBPS/8 # I+Q data in array
+                            # Save FFT
+                            if saveWaterfall:
+                                dataC = None
+                                if iqBPS == 8:
+                                    # 2x8bit => I + Q
+                                    dataForFFT = data[0:imageWidth].astype('uint16')
+                                    re = dataForFFT & 0xFF
+                                    im = dataForFFT >> 8
+                                    dataC =  np.asfarray(re) + 1j*np.asfarray(im)
+                                else:
+                                    # 2x16bit => I + Q
+                                    dataForFFT = data[0:imageWidth].astype('uint32')
+                                    re = dataForFFT & 0xFFFF
+                                    im = dataForFFT >> 16
+                                    dataC = np.asfarray(re) + 1j*np.asfarray(im)
 
-                if saveWaterfall:
-                    imgLine = imageProcessing.generateNewLine(imageWidth, fftData, iqBPS)
-                    # Add time marker
-                    diffInS = (now - timeMarker).total_seconds()
-                    if diffInS > markerInS:
-                        for x in range(10):
-                          imgLine[x] = markerRGB
-                        timeMarker = now
-                    samplesToAdd.append(imgLine)
-                    # Save, if ready
-                    if len(samplesToAdd) == imgBlockSize:
-                        childPipe.send(samplesToAdd)
-                        
-                        samplesToAdd = []
-                        filesSavedCount += 1
+                                fft = imageProcessing.applyFFT(dataC, imageWidth)
+                                # Suppress DC
+                                fft[0] = fft[1]
+                                fftData += fft
+
+                                #print("FFT", len(fft))
+                    fftData /= average
+
+                    now = datetime.datetime.now()
+                    # Check run time
+                    runTime = int((now - start).total_seconds())
+                    if runTime > timeLimit:
+                        raise TimeOver
+                    if timeEnd is not None and now > timeEnd:
+                        raise TimeOver
+                    # Check free space
+                    free,total = utils.getDiskSpace()
+                    if free < 64*1024*1024:
+                        raise FreeSpaceError
+
+                    if saveWaterfall:
+                        imgLine = imageProcessing.generateNewLine(imageWidth, fftData, iqBPS)
+                        # Add time marker
+                        diffInS = (now - timeMarker).total_seconds()
+                        if diffInS > markerInS:
+                            for x in range(10):
+                              imgLine[x] = markerRGB
+                            timeMarker = now
+                        # print("Line added", freq_index)
+                        samplesToAdd[freq_index].append(imgLine)
+        
+                # print("Block added", len(samplesToAdd[0]))
+                # Save data, if ready
+                if len(samplesToAdd[0]) == imgBlockSize:
+                    childPipe.send(samplesToAdd)
+                    
+                    samplesToAdd = [[] for i in range(frequency_steps)]
+                    filesSavedCount += 1
 
                 # Notify if IQ save active
                 if saveIQ and iqSavedCount % 64 == 0:
                     print("{}:{:02d}s: {}.wav: {}Mb saved, {}Mb free on device".format(int(runTime/60), runTime%60, imageFileName, int(iqSavedSize/(1024*1024)), int(free/(1024*1024))))
 
         except KeyboardInterrupt:
+            pass
+        except FreeSpaceError:
+            print("Error: no free space on device, recording stopped")
+        except TimeOver:
             pass
         except Exception as e:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -301,6 +346,8 @@ if __name__ == '__main__':
         iqParentPipe.close()
 
         print("")
+
+        # sys.exit(0)
 
         # Combine files
         print("Images saved: {}".format(filesSavedCount))

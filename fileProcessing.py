@@ -7,11 +7,11 @@ import sys
 import re as regexp
 import wave
 from waveFile import WaveFile
+from PIL import Image
 
-def waterfallSaveProcess(imageWidth, sampleRate, frequency, outputFolder, imageFileName, dataPipe):
+def waterfallSaveProcess(imageWidth, imageHeight, sampleRate, frequency, outputFolder, imageFileName, dataPipe):
     try:
         savedCount = 0
-        
         while True:
             timeout = 10
             if dataPipe.poll(timeout):
@@ -21,15 +21,22 @@ def waterfallSaveProcess(imageWidth, sampleRate, frequency, outputFolder, imageF
           
                 now = datetime.datetime.now()
                 
-                img = imageProcessing.createImageHeader(imageWidth, sampleRate, frequency)
-                imgData = imageProcessing.imageToArray(img)
+                # Combine all images horizontally
+                h_header = imageProcessing.getHeaderHeight()
+                w_total, h_total = imageWidth*len(data), h_header + imageHeight
+                img_total = Image.new('RGB', (w_total, h_total))
                 
-                imgDataOut = np.append(imgData, data, axis=0)
-                imgOut = imageProcessing.imageFromArray(imgDataOut)
+                header = imageProcessing.createImageHeader(w_total, sampleRate*len(data), frequency)
+                img_total.paste(header, (0,0))
                 
+                for index, d in enumerate(data):
+                    img = imageProcessing.imageFromArray(d)
+                    width, height = img.size
+                    img_total.paste(img, (index*width, h_header))
+                      
                 fileName = "{}-{:05d}.jpg".format(imageFileName, savedCount)
                 filePath = utils.makeFilePath(outputFolder, fileName)
-                imgOut.save(filePath)
+                img_total.save(filePath)
                 
                 savedCount += 1
             

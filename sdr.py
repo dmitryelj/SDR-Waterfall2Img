@@ -3,21 +3,30 @@
 
 import numpy as np
 import os, sys, time
-import SoapySDR
-from soapyDevice import SoapyDevice
+try:
+    if __import__('imp').find_module('SoapyDevice')[1] is not None:
+        from soapyDevice import SoapyDevice
+except:
+    pass
 
 class SDR(object):
     def __init__(self):
         self.isInit = False
         self.sdr = None
         self.name = ""
+        # For debug/simulation only
+        self.fakeName = "fake"
+        self.fakeSampleRate = 1000000
 
     def listDevices(self):
-        return SoapyDevice.listDevices()
+        try:
+            return SoapyDevice.listDevices()
+        except:
+            return []
 
     def initDevice(self, name = None, driverName = None):
         if name is None and driverName is None:
-            self.name = "fake"
+            self.name = self.fakeName
             return
 
         # Search by additional parameter, like 'driver=rtlsdr,rtl=1'
@@ -51,15 +60,16 @@ class SDR(object):
                 return name
             
         return None
-
+    
     def getSampleRates(self):
         if self.sdr is None:
-            return [2000000.0]
+            return [self.fakeSampleRate]
         
         return self.sdr.list_sample_rates()
 
     def getBandwidths(self):
-        if self.sdr is None: return "-"
+        if self.sdr is None:
+            return []
 
         return self.sdr.list_bandwidths()
 
@@ -95,6 +105,8 @@ class SDR(object):
     def setSampleRate(self, samplerate):
         if self.sdr is not None:
             self.sdr.sample_rate = samplerate
+        else:
+            self.fakeSampleRate = samplerate
 
     def setBandwidth(self, bandwidth):
         if self.sdr is not None:
@@ -130,3 +142,4 @@ class SDR(object):
 
 if __name__ == '__main__':
     pass
+

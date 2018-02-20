@@ -16,6 +16,12 @@ def getImageSize(img):
 def getHeaderHeight():
     return headerH
 
+def getNearestImageWidth(width):
+    v = 256
+    while v < width:
+        v *= 2
+    return v
+
 def createImageHeader(imageWidth, sampleRate, frequency):
     try:
         img = Image.new('RGB', (imageWidth, headerH))
@@ -27,24 +33,27 @@ def createImageHeader(imageWidth, sampleRate, frequency):
         tickW = step*fft/sampleRate
         middleX = imageWidth/2
         cnt = int(sampleRate/step)
+        
+        # Find nearest frequency and position according to step
+        f_diff = 0 if frequency % step == 0 else step - frequency % step
+        x_diff = f_diff*fft/sampleRate
 
         # Marks
         for p in range(-5*cnt, 5*cnt+1):
-          x = middleX + p*tickW/5
-          draw.line((x,headerH-5, x,headerH), fill=(200,200,200))
+            x = middleX + x_diff + p*tickW/5
+            c = 200 if p % 5 == 0 else 100
+            draw.line((x,headerH-5, x,headerH), fill=(c,c,c))
 
         # Labels
-        step = 500000
-        middleX = imageWidth/2
         cnt = int(sampleRate/step)
         if cnt == 0: cnt = 1
         for p in range(-cnt, cnt+1):
-          x = middleX + p*tickW
-          freq = frequency + p*step
-          freqStr = str(freq/1000)
-          w, h = draw.textsize(freqStr)
-          text_x = x - w/2
-          draw.text((text_x, 3), freqStr, font=font, fill=(200,200,200))
+            x = middleX + x_diff + p*tickW
+            freq = frequency + f_diff + p*step
+            freqStr = str(freq/1000)
+            w, h = draw.textsize(freqStr)
+            text_x = x - w/2
+            draw.text((text_x, 3), freqStr, font=font, fill=(200,200,200))
 
         # Bottom divider
         draw.line((0,headerH-1, imageWidth,headerH-1), fill=(200,200,200))
@@ -65,7 +74,7 @@ def imageToArray(img):
 
 def generateNewLine(imageWidth, data, iqBPS):
     paletteR, paletteG, paletteB = 4, 1, 4
-    k = 4 if iqBPS == 8 else 4*256
+    k = 2 if iqBPS == 8 else 4*256
     def convert(val):
       v = val if val < 255 else 255
       return [v/paletteR, v/paletteG, v/paletteB]

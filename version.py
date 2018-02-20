@@ -1,2 +1,2 @@
 def getVersion():
-    return "1.0b5"
+    return "1.0b6"
